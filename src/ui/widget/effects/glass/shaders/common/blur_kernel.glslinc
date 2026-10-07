@@ -1,0 +1,28 @@
+// Separable Gaussian blur with bilinear-paired taps.
+const int kGaussianPairCapacity = 12;
+
+vec4 sampleBoxDown(sampler2D image, vec2 uv, vec2 inverseSourceResolution) {
+  vec2 halfTexel = inverseSourceResolution * 0.5;
+  vec4 color = texture(image, uv + vec2(-halfTexel.x, -halfTexel.y));
+  color += texture(image, uv + vec2( halfTexel.x, -halfTexel.y));
+  color += texture(image, uv + vec2(-halfTexel.x,  halfTexel.y));
+  color += texture(image, uv + vec2( halfTexel.x,  halfTexel.y));
+  return color * 0.25;
+}
+
+vec4 sampleGaussian(sampler2D image, vec2 uv,
+                    vec2 inverseSourceResolution, vec2 direction,
+                    float centerWeight, float pairCount,
+                    float pairWeights[kGaussianPairCapacity],
+                    float pairOffsets[kGaussianPairCapacity]) {
+  vec4 color = texture(image, uv) * centerWeight;
+  int count = int(pairCount + 0.5);
+  for (int pair = 0; pair < kGaussianPairCapacity; ++pair) {
+    if (pair >= count)
+      break;
+    vec2 offset = direction * inverseSourceResolution * pairOffsets[pair];
+    color += texture(image, uv + offset) * pairWeights[pair];
+    color += texture(image, uv - offset) * pairWeights[pair];
+  }
+  return color;
+}

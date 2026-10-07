@@ -1,0 +1,52 @@
+set(GLASS_UI_ANDROID_SDK "" CACHE PATH "Android SDK used to compile the input bridges")
+if(NOT GLASS_UI_ANDROID_SDK)
+    foreach(candidate "$ENV{ANDROID_SDK_ROOT}" "$ENV{ANDROID_HOME}"
+                      "$ENV{LOCALAPPDATA}/Android/Sdk"
+                      "$ENV{HOME}/Library/Android/sdk" "$ENV{HOME}/Android/Sdk")
+        if(EXISTS "${candidate}/platforms")
+            set(GLASS_UI_ANDROID_SDK "${candidate}")
+            break()
+        endif()
+    endforeach()
+endif()
+file(GLOB platform_jars "${GLASS_UI_ANDROID_SDK}/platforms/*/android.jar")
+if(CMAKE_HOST_WIN32)
+    file(GLOB dex_compilers "${GLASS_UI_ANDROID_SDK}/build-tools/*/d8.bat")
+else()
+    file(GLOB dex_compilers "${GLASS_UI_ANDROID_SDK}/build-tools/*/d8")
+endif()
+list(SORT platform_jars COMPARE NATURAL ORDER DESCENDING)
+list(SORT dex_compilers COMPARE NATURAL ORDER DESCENDING)
+if(NOT platform_jars OR NOT dex_compilers)
+    message(FATAL_ERROR "Input bridges require an Android SDK with platform/build-tools; set GLASS_UI_ANDROID_SDK")
+endif()
+list(GET platform_jars 0 android_jar)
+list(GET dex_compilers 0 d8)
+find_package(Java REQUIRED COMPONENTS Development)
+
+set(sources "${CMAKE_CURRENT_SOURCE_DIR}/ImeBridge.java"
+            "${CMAKE_CURRENT_SOURCE_DIR}/TouchBridge.java")
+set(generated "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${sources})
+file(REMOVE_RECURSE "${generated}/classes")
+file(MAKE_DIRECTORY "${generated}/classes" "${generated}/dex")
+execute_process(COMMAND "${Java_JAVAC_EXECUTABLE}" --release 8 -Xlint:all -Xlint:-options -Werror
+    -classpath "${android_jar}" -d "${generated}/classes" ${sources}
+    RESULT_VARIABLE result ERROR_VARIABLE errors)
+if(NOT "${result}" STREQUAL "0")
+    message(FATAL_ERROR "Input bridge Java compilation failed: ${errors}")
+endif()
+file(GLOB_RECURSE classes "${generated}/classes/*.class")
+execute_process(COMMAND "${d8}" --release --min-api 24 --lib "${android_jar}"
+    --output "${generated}/dex" ${classes}
+    RESULT_VARIABLE result ERROR_VARIABLE errors)
+if(NOT "${result}" STREQUAL "0")
+    message(FATAL_ERROR "Input bridge DEX compilation failed: ${errors}")
+endif()
+file(READ "${generated}/dex/classes.dex" dex_data HEX)
+string(REGEX REPLACE "(..)" "0x\\1, " dex_data "${dex_data}")
+file(WRITE "${generated}/input_bridge.hpp.tmp"
+    "#pragma once\n\nalignas(4) inline constexpr unsigned char kInputBridgeDexData[] = { ${dex_data} };\n")
+configure_file("${generated}/input_bridge.hpp.tmp" "${generated}/input_bridge.hpp" COPYONLY)
+file(REMOVE "${generated}/input_bridge.hpp.tmp")
+set(GLASS_UI_INPUT_JAVA_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}" PARENT_SCOPE)

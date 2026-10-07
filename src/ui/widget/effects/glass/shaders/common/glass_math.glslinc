@@ -1,0 +1,90 @@
+// Adapted from AndroidLiquidGlassView; (c) 2025 QmDeve, MIT.
+
+float radiusAt(vec2 point, vec4 radii) {
+  if (point.x >= 0.0)
+    return point.y <= 0.0 ? radii.y : radii.z;
+  return point.y <= 0.0 ? radii.x : radii.w;
+}
+
+float sdRoundedRect(vec2 point, vec2 halfSize, float radius) {
+  vec2 corner = abs(point) - (halfSize - vec2(radius));
+  float outside = length(max(corner, vec2(0.0))) - radius;
+  float inside = min(max(corner.x, corner.y), 0.0);
+  return outside + inside;
+}
+
+float sdCircle(vec2 point, float radius) {
+  return length(point) - radius;
+}
+
+float antialiasedCoverage(float signedDistance) {
+  float edgeWidth = max(fwidth(signedDistance), 0.5);
+  return 1.0 - smoothstep(-edgeWidth, edgeWidth, signedDistance);
+}
+
+// Exact pixel coverage for a locally straight edge, including jelly scaling.
+float pixelCoverage(float signedDistance, vec2 gradient) {
+  float gradientLength = length(gradient);
+  if (gradientLength < 1e-4)
+    return signedDistance < 0.0 ? 1.0 : 0.0;
+  vec2 normal = abs(gradient) / gradientLength;
+  float major = max(normal.x, normal.y);
+  float minor = min(normal.x, normal.y);
+  float offset = -signedDistance / gradientLength;
+  float extent = 0.5 * (major + minor);
+  if (offset <= -extent)
+    return 0.0;
+  if (offset >= extent)
+    return 1.0;
+  if (minor < 1e-4 || abs(offset) <= 0.5 * (major - minor))
+    return clamp(0.5 + offset / major, 0.0, 1.0);
+  float corner = extent - abs(offset);
+  float area = corner * corner / (2.0 * major * minor);
+  return offset < 0.0 ? area : 1.0 - area;
+}
+
+float safeSign(float value) {
+  return value < 0.0 ? -1.0 : 1.0;
+}
+
+vec2 safeNormalize(vec2 value, vec2 fallback) {
+  float valueLength = length(value);
+  return valueLength > 0.001 ? value / valueLength : fallback;
+}
+
+vec2 jellyHalfSize(vec2 halfSize, vec2 deformation) {
+  vec2 inset = min(abs(deformation) * 0.46, vec2(0.18));
+  return max(halfSize * (vec2(1.0) - inset), vec2(1.0));
+}
+
+vec2 jellyCoordinate(vec2 point, vec2 halfSize, vec2 deformation) {
+  vec2 normalized = clamp(point / max(halfSize, vec2(1.0)),
+                          vec2(-1.0), vec2(1.0));
+  vec2 profile = vec2(1.0 - normalized.y * normalized.y,
+                      1.0 - normalized.x * normalized.x);
+  return point - deformation * halfSize * profile * 0.72;
+}
+
+vec2 gradSdRoundedRect(vec2 point, vec2 halfSize, float radius) {
+  vec2 corner = abs(point) - (halfSize - vec2(radius));
+  if (corner.x >= 0.0 || corner.y >= 0.0) {
+    vec2 outside = max(corner, vec2(0.0));
+    float outsideLength = length(outside);
+    if (outsideLength > 0.001)
+      return sign(point) * (outside / outsideLength);
+    float useX = step(corner.y, corner.x);
+    return vec2(useX * safeSign(point.x),
+                (1.0 - useX) * safeSign(point.y));
+  }
+  float useX = step(corner.y, corner.x);
+  return sign(point) * vec2(useX, 1.0 - useX);
+}
+
+vec2 gradSdCircle(vec2 point) {
+  return safeNormalize(point, vec2(1.0, 0.0));
+}
+
+float circleMap(float value) {
+  float mapped = clamp(value, -1.0, 1.0);
+  return 1.0 - sqrt(max(0.0, 1.0 - mapped * mapped));
+}

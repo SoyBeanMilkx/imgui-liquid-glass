@@ -1,0 +1,28 @@
+// Color filtering adapted from AndroidLiquidGlassView; (c) 2025 QmDeve, MIT.
+
+// GLSL equivalents of AGSL's toLinearSrgb/fromLinearSrgb helpers.
+vec3 toLinearSrgb(vec3 color) {
+  vec3 low = color / 12.92;
+  vec3 high = pow(max((color + 0.055) / 1.055, vec3(0.0)), vec3(2.4));
+  return mix(high, low, lessThanEqual(color, vec3(0.04045)));
+}
+
+vec3 fromLinearSrgb(vec3 color) {
+  vec3 low = color * 12.92;
+  vec3 high = 1.055 * pow(max(color, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
+  return mix(high, low, lessThanEqual(color, vec3(0.0031308)));
+}
+
+vec4 filterLiquidGlassColor(vec4 color, float contrast, float whitePoint,
+                            float chromaMultiplier, vec4 tint) {
+  const vec3 rgbToY = vec3(0.2126, 0.7152, 0.0722);
+  vec3 linear = toLinearSrgb(color.rgb);
+  float luminance = dot(linear, rgbToY);
+  color.rgb = fromLinearSrgb(
+      mix(vec3(luminance), linear, chromaMultiplier));
+  vec3 target = whitePoint > 0.0 ? vec3(1.0) : vec3(0.0);
+  color.rgb = mix(color.rgb, target, abs(whitePoint));
+  color.rgb = (color.rgb - 0.5) * (1.0 + contrast) + 0.5;
+  color.rgb = mix(color.rgb, tint.rgb, tint.a);
+  return color;
+}
